@@ -6,67 +6,57 @@
 
 int main(int argc, char *argv[]){
 
-    image img(argv[1]);
-    cv::Mat imagem, imagem_tc, imagem_x, imagem_y, mag;
-    cv::Mat imagem_xs, imagem_ys;
-    // cv::Mat gradient_angle_degrees;
-    // bool angleInDegrees = true;
+    cv::Mat imagem, sobel_x, sobel_y, direction, mag, angle;
+    imagem = cv::imread(argv[1], cv::IMREAD_GRAYSCALE);
 
-    // int fator = atoi(argv[2]);
+    double Tm = 0.3, Ta = 45, A = 90;
 
-    if(img.getPixels().empty()){
-        std::cout << "Não foi possível ler o arquivo: " << argv[1] << std::endl;
-        return 1;
+    cv::imwrite("piramidetc.jpg", imagem);
+
+    if(imagem.empty()){
+        std::cerr << "Erro ao carregar a imagem.\n";
+        return -1;
     }
 
-    imagem = img.getPixels();
 
-    cv::cvtColor(imagem, imagem_tc, cv::COLOR_BGR2GRAY);
-    // std::cout << "converteu o arquivo pra tons de cinza\n";
-    // //     Altere os pixels da imagem
-    // for (int y = 0; y < imagem.rows; ++y) {
-    //     for (int x = 0; x < imagem.cols; ++x) {
-    //         // Acesse o pixel na posição (x, y)
-    //         cv::Vec3b& pixel = imagem.at<cv::Vec3b>(y, x);
-            
-    // //         // Modifique os valores dos canais de cor (BGR)
-    // //         // Por exemplo, faça o pixel ser azul
-    //         pixel[0] *= fator;
-    //         pixel[1] *= fator;
-    //         pixel[2] *= fator;
-    //     }
-    // }
+    cv::Sobel(imagem, sobel_x, CV_8U, 1, 0);
+    cv::Sobel(imagem, sobel_y, CV_8U, 0, 1);
 
-    cv::imshow("Janela de visualização", imagem);
-    cv::Sobel(imagem_tc, imagem_x, imagem_tc.depth(), 1, 0, 3);
-    cv::resize(imagem_x, imagem_xs, cv::Size(imagem_x.rows, imagem_x.cols), 0, 0);
-    cv::imshow("Janela de visualização - Sobel x", imagem_xs);
+    cv::Mat sobel_x_float, sobel_y_float;
+    sobel_x.convertTo(sobel_x_float, CV_64F);
+    sobel_y.convertTo(sobel_y_float, CV_64F);
 
-    cv::Sobel(imagem_tc, imagem_y, imagem_tc.depth(), 0, 1, 3);
-    cv::resize(imagem_y, imagem_ys, cv::Size(imagem_y.rows, imagem_y.cols), 0, 0);
-    cv::imshow("Janela de visualização - Sobel y", imagem_ys);
+    cv::cartToPolar(sobel_x_float, sobel_y_float, mag, angle);   
 
-    // cv::phase(imagem_x, imagem_y, gradient_angle_degrees, angleInDegrees);
-    // cv::imshow("Janela de visualização - gradiente", gradient_angle_degrees);
+    cv::Mat imagem_g(imagem.rows, imagem.cols, CV_64F);
 
-    std::cout << "imagem x size == " << imagem_x.size << std::endl;
-    std::cout << "imagem y size == " << imagem_y.size << std::endl;
+    double valorMaximo;
+    cv::Point posicaoMaxima;
+    cv::minMaxLoc(mag, nullptr, &valorMaximo, nullptr, &posicaoMaxima);
 
-    // cv::Mat mag(imagem_x.size(), imagem_x.type());
+    Tm *= valorMaximo;
 
-    imagem_tc = abs(imagem_xs) + abs(imagem_ys);
-    cv::imshow("Janela de visualização - Sobel |x + y|", imagem_tc);
+    for(int i = 0; i < imagem.rows; i++){
+        for(int j = 0; j < imagem.cols; j++){
+            if(mag.at<uchar>(i,j) > Tm && (angle.at<uchar>(i,j) == A + Ta || angle.at<uchar>(i,j) == A - Ta))
+                imagem_g.at<uchar>(i, j) = 255;
+            else
+                imagem_g.at<uchar>(i, j) = 0;
+        }
+    }
 
-    cv::magnitude(imagem_xs, imagem_ys, mag);
-    cv::Mat res;
-    cv::hconcat(imagem_xs,imagem_ys, res);
-    cv::hconcat(res, mag, res);
-    
-    cv::imshow("Janela de visualização - magnitude de sobelx e sobely", res);
+    mag.convertTo(mag, CV_8U);
+    angle.convertTo(angle, CV_8U);
 
-    // std::cout << imagem_tc << std::endl;
-    // std::cout << imagem << std::endl;
-    int k = cv::waitKey(0);
+    cv::imshow("Imagem Original", imagem);
+    cv::imshow("Derivada em X", sobel_x);
+    cv::imshow("Derivada em Y", sobel_y);
+    cv::imshow("Magnitude das Derivadas", mag);
+    cv::imshow("Ângulo de Fase", angle);
+    cv::imshow("g(x,y)", imagem_g);
+    std::cout << imagem_g << std::endl;
+
+    cv::waitKey(0);
 
     return 0;
 }
