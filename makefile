@@ -5,7 +5,7 @@ CFLAGS =
 TARGET = main.x
 
 # Fontes
-SOURCES = image.cpp main.cpp
+SOURCES = main.cpp
 
 # Objetos
 OBJECTS = $(SOURCES:.cpp=.o)

@@ -2,7 +2,7 @@
 #include <iostream>
 #include <fstream>
 #include <cstdlib>
-#include "image.hpp"
+#include <opencv2/opencv.hpp>
 
 cv::Mat localProcessing(cv::Mat original_image, double Tm, double A, double Ta){
     cv::Mat sobel_x, sobel_y, direction, mag, angle;
@@ -61,12 +61,35 @@ cv::Mat localProcessing(cv::Mat original_image, double Tm, double A, double Ta){
 
 }
 
-cv::Mat correction(cv::Mat image, double K){
+cv::Mat correction(cv::Mat image, int K){
 
-    cv::Mat final_image;
+    cv::Mat result = image;
+    int start, length;
+    for(int i = 0; i < image.rows; i++){
+        start = -1;
+        for(int j = 0; j < image.cols; j++){
+            // se o pixel atual == 255 E o proximo for == 0
+            // percorrer essa sequencia de 0's até achar outro 1
+            // contar a qtd de 0's, se for menor do que o valor K, 
+            // deve preencher esse "buraco" com 255's
+            if(image.at<uchar>(i, j) == 0 && start == -1){
+                start = j;
+            }
+            else if(image.at<uchar>(i, j) == 255 && start != -1){
+                length = j - start;
+                if(length < K){
+                    for(int k = start; k < j; k++){
+                        result.at<uchar>(i, j) = 255;
+                    }
+                }
+                start = -1;
+            }
 
-    return final_image;
+        }
+    }
+    return result;
 }
+
 
 int main(int argc, char *argv[]){
 
@@ -89,6 +112,10 @@ int main(int argc, char *argv[]){
     cv::Mat result_or;
     cv::bitwise_or(result_h, result_v, result_or);
     cv::imshow("Operação de OR dos dois resultados", result_or);
+    // std::cout << result_or << std::endl;
+
+    result_or = correction(result_or, 1000);
+    cv::imshow("Após correção", result_or);
     cv::waitKey(0);
 
     return 0;
