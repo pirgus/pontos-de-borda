@@ -23,7 +23,7 @@ cv::Mat localProcessing(cv::Mat original_image, double Tm, double A, double Ta){
     cv::Point posicaoMaxima;
     cv::minMaxLoc(mag, nullptr, &valorMaximo, nullptr, &posicaoMaxima);
 
-    std::cout << "valormaximo = " << valorMaximo << std::endl;
+    // std::cout << "valormaximo = " << valorMaximo << std::endl;
 
     mag.convertTo(mag_8u, CV_8U);
     angle.convertTo(angle_8u, CV_8U);
@@ -63,38 +63,35 @@ cv::Mat localProcessing(cv::Mat original_image, double Tm, double A, double Ta){
 
 cv::Mat correction(cv::Mat image, int K){
 
-    cv::Mat result = image;
-    int start, length;
-    for(int i = 0; i < image.rows; i++){
-        start = -1;
-        for(int j = 0; j < image.cols; j++){
-            // se o pixel atual == 255 E o proximo for == 0
-            // percorrer essa sequencia de 0's até achar outro 1
-            // contar a qtd de 0's, se for menor do que o valor K, 
-            // deve preencher esse "buraco" com 255's
-            if(image.at<uchar>(i, j) == 0 && start == -1){
-                start = j;
-            }
-            else if(image.at<uchar>(i, j) == 255 && start != -1){
-                length = j - start;
-                if(length < K){
-                    for(int k = start; k < j; k++){
-                        result.at<uchar>(i, j) = 255;
+    cv::Mat corrected_image = image;
+
+    for(int i = 1; i < image.rows - 1; i++){
+        for(int j = 1; j < image.cols - 1; j++){
+            if(image.at<uchar>(i, j) == 255){
+                int count = 0;
+                int k = j + 1;
+                while(k < image.cols -1 && image.at<uchar>(i, k) == 0){
+                    count++;
+                    k++;
+                }
+                if(k < image.cols -1 && image.at<uchar>(i, k) == 255 && count <= K){
+                    for(int fill = j + 1; fill < k; fill++){
+                        corrected_image.at<uchar>(i, fill) = 255;
                     }
                 }
-                start = -1;
+                j = k - 1;
             }
-
         }
     }
-    return result;
+    return corrected_image;
 }
 
 
 int main(int argc, char *argv[]){
 
-    cv::Mat imagem, sobel_x, sobel_y, direction, mag, angle;
+    cv::Mat imagem, sobel_x, sobel_y, direction, mag, angle, correcao;
     imagem = cv::imread(argv[1], cv::IMREAD_GRAYSCALE);
+    int K = 5;
 
     double Tm = 0.3, Ta = 45, A = 90;
 
@@ -114,8 +111,16 @@ int main(int argc, char *argv[]){
     cv::imshow("Operação de OR dos dois resultados", result_or);
     // std::cout << result_or << std::endl;
 
-    result_or = correction(result_or, 1000);
-    cv::imshow("Após correção", result_or);
+    correcao = correction(result_or, K);
+    cv::imshow("correcao", correcao);
+
+    cv::rotate(result_or, result_or, cv::ROTATE_90_CLOCKWISE);
+    cv::Mat correcao2 = correction(result_or, K);
+
+    cv::rotate(correcao2, correcao2, cv::ROTATE_90_COUNTERCLOCKWISE);
+
+    cv::imshow("Correcao de lado", correcao2);
+
     cv::waitKey(0);
 
     return 0;
