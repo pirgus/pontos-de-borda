@@ -86,42 +86,111 @@ cv::Mat correction(cv::Mat image, int K){
     return corrected_image;
 }
 
+// cv::Mat regionalProcessing(cv::Mat original_image){
+
+// }
+
 
 int main(int argc, char *argv[]){
 
-    cv::Mat imagem, sobel_x, sobel_y, direction, mag, angle, correcao;
-    imagem = cv::imread(argv[1], cv::IMREAD_GRAYSCALE);
-    int K = 5;
+    cv::Mat imagem, correcao;
+    int opc = -1;
+    std::string nome_imagem;
 
-    double Tm = 0.3, Ta = 45, A = 90;
-
-    cv::imwrite("piramidetc.jpg", imagem);
-
+    std::cout << "Digite o nome do arquivo que você gostaria de processar: \n";
+    std::cin >> nome_imagem;
+    imagem = cv::imread(nome_imagem, cv::IMREAD_GRAYSCALE);
     if(imagem.empty()){
         std::cerr << "Erro ao carregar a imagem.\n";
         return -1;
     }
 
-    cv::Mat result_h(imagem.rows, imagem.cols, CV_8U), result_v(imagem.rows, imagem.cols, CV_8U);
-    result_h = localProcessing(imagem, Tm, A, Ta);
-    result_v = localProcessing(imagem, Tm, 180, Ta);
+    std::cout << "Qual tipo de processamento você quer realizar?\n 1 - Processamento Local\n 2 - Processamento Regional\n 3 - Processamento Global\n";
+    std::cin >> opc;
+    std::system("clear");
 
-    cv::Mat result_or;
-    cv::bitwise_or(result_h, result_v, result_or);
-    cv::imshow("Operação de OR dos dois resultados", result_or);
-    // std::cout << result_or << std::endl;
+    switch(opc){
+        case 1:{
+            double Tm = 0.3, Ta = 45, A = 90;
+            int K = 5;
 
-    correcao = correction(result_or, K);
-    cv::imshow("correcao", correcao);
+            // obtendo os parâmetros pela entrada do usuário
+            std::cout << "Digite o limiar Tm: \n";
+            std::cin >> Tm;
+            std::cout << "Digite a direção angular (A): \n";
+            std::cin >> A;
+            std::cout << "Digite a faixa de direções aceitáveis (Ta) ao redor A: \n";
+            std::cin >> Ta;
+            std::cout << "Digite o limiar K para realizar a correção de falhas: \n";
+            std::cin >> K;
 
-    cv::rotate(result_or, result_or, cv::ROTATE_90_CLOCKWISE);
-    cv::Mat correcao2 = correction(result_or, K);
+            // aplicando as funções
+            cv::Mat result_h(imagem.rows, imagem.cols, CV_8U), result_v(imagem.rows, imagem.cols, CV_8U);
+            result_h = localProcessing(imagem, Tm, A, Ta);
+            result_v = localProcessing(imagem, Tm, 180, Ta);
 
-    cv::rotate(correcao2, correcao2, cv::ROTATE_90_COUNTERCLOCKWISE);
+            cv::Mat result_or;
+            cv::bitwise_or(result_h, result_v, result_or);
+            cv::imshow("Operação de OR dos dois resultados", result_or);
 
-    cv::imshow("Correcao de lado", correcao2);
+            // realizando a correcao na vertical
+            correcao = correction(result_or, K);
+            cv::imshow("correcao", correcao);
 
-    cv::waitKey(0);
+            // realizando a correcao na vertical
+            cv::Mat correcao2;
+            cv::rotate(result_or, correcao2, cv::ROTATE_90_CLOCKWISE);
+            correcao2 = correction(correcao2, K);
+            cv::rotate(correcao2, correcao2, cv::ROTATE_90_COUNTERCLOCKWISE);
+            cv::imshow("Correcao de lado", correcao2);
+
+            cv::waitKey(0);
+            break;
+        }
+        
+        case 2:{
+            int T = -1;
+
+            // obtendo parâmetros do usuário
+            std::cout << "Informe o limiar T (quanto menor o limiar, maior a precisão e vice-versa): \n";
+            std::cin >> T;
+
+            // 1) P é um conjunto ordenado de pontos. A e B são os pontos de partida
+            // 2) definimos o limiar T e duas pilhas vazias (Ab e Fe)
+            // 3) se P define uma curva fechada, empilhamos B em Ab e Fe e A em Ab.
+            //  se a curva for aberta colocamos A em Ab e B em Fe.
+            // 4) calculamos os parâmetros da reta que passa pelos vértices no topo de Fe
+            // e no topo de Ab
+            // 5) para todos os pontos, entre aqueles vértices obtidos em (4), calculamos
+            // suas distâncias em relação à reta obtida em (4). Selecionamos o ponto Vmax,
+            // com distância Dmax
+            // 6) se Dmax > T, empilhamos o vertice Vmax em Ab e retornamos a (4)
+            // 7) senão, removemos o vértice no topo de Ab empilhando-o em Fe
+            // 8) se a pilha Ab não estiver vaiz, retornamos a (4)
+            // 9) caso contrário, saímos. Os vértices em Fe definem a aproximação poligonal 
+            // do conjunto de pontos P.
+            break;
+        }
+        
+        case 3:{
+            // 1) obtenha uma imagem binária com as bordas da imagem
+            // 2) defina como o plano p-theta será dividido (estrutura da matriz acumuladora)
+            // 3) aplique a parametrização aos pontos da imagem das bordas, atualizando
+            // a matriz acumuladora
+            // 4) examine a matriz acumuladora em busca de células com valores elevados
+            // 5) examine a relação (principalmente as de continuidade) entre os pixels
+            // oriundos das células escolhidas em (4)
+
+            std::cout << "Operação em desenvolvimento, tente novamente mais tarde.\n";
+            break;
+        }
+
+        default:{
+            std::cout << "Operação inválida\n";
+            return -1;
+        }
+    }
+
 
     return 0;
 }
