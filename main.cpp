@@ -3,6 +3,9 @@
 #include <fstream>
 #include <cstdlib>
 #include <opencv2/opencv.hpp>
+#include <stack>
+#include <list>
+#include <vector>
 
 cv::Mat localProcessing(cv::Mat original_image, double Tm, double A, double Ta){
     cv::Mat sobel_x, sobel_y, direction, mag, angle;
@@ -86,9 +89,80 @@ cv::Mat correction(cv::Mat image, int K){
     return corrected_image;
 }
 
-// cv::Mat regionalProcessing(cv::Mat original_image){
+struct point{
+    double x, y;
+};
 
-// }
+
+// funcao p calcular a distancia entre os pontos
+double distance(point p1, double inclinicacao, double interceptacao){
+    return std::abs(inclinicacao * p1.x - p1.y + interceptacao) / 
+            std::sqrt(inclinicacao * inclinicacao + 1);
+}
+
+// calcular parametros de reta
+void calcLineParams(point topFe, point topAb, double& inclinacao, double &interceptacao){
+    inclinacao = (topAb.y - topFe.y) / (topAb.x - topFe.x);
+    interceptacao = topFe.y - inclinacao * topFe.x;
+}
+
+// 1) P é um conjunto ordenado de pontos. A e B são os pontos de partida
+// 2) definimos o limiar T e duas pilhas vazias (Ab e Fe)
+// 3) se P define uma curva fechada, empilhamos B em Ab e Fe e A em Ab.
+//  se a curva for aberta colocamos A em Ab e B em Fe.
+// 4) calculamos os parâmetros da reta que passa pelos vértices no topo de Fe
+// e no topo de Ab
+// 5) para todos os pontos, entre aqueles vértices obtidos em (4), calculamos
+// suas distâncias em relação à reta obtida em (4). Selecionamos o ponto Vmax,
+// com distância Dmax
+// 6) se Dmax > T, empilhamos o vertice Vmax em Ab e retornamos a (4)
+// 7) senão, removemos o vértice no topo de Ab empilhando-o em Fe
+// 8) se a pilha Ab não estiver vaiz, retornamos a (4)
+// 9) caso contrário, saímos. Os vértices em Fe definem a aproximação poligonal 
+// do conjunto de pontos P.
+void regionalProcessing(std::vector<point> points, double T, bool closed){
+    std::stack<point> aberta, fechada;
+    point A, B;
+
+    // escolher onde empilhar A e B, de acordo com o tipo de curva (como saber?)
+    if(closed){ // p curva fechada
+        aberta.push(B);
+        fechada.push(B);
+        aberta.push(A);
+    }
+    else{ // p curva aberta
+        aberta.push(A);
+        fechada.push(B);
+    }
+
+    while(!aberta.empty()){ // enquanto a lista de abertos não estiver vazia
+        point topFe(fechada.top()), topAb(aberta.top());
+        double incl, intercep;
+        calcLineParams(topFe, topAb, incl, intercep);
+        point vmax;
+        double dmax = 0.0;
+
+        for(const auto& it : points){
+            if(dmax < distance(it, incl, intercep)){
+                vmax = it;
+                dmax = distance(it, incl, intercep);
+            }
+        }
+
+        if(dmax > T){
+            aberta.push(vmax);
+            continue;
+        }
+        else{
+            aberta.pop();
+            fechada.push(vmax);
+        }
+    }
+    while(!fechada.empty()){
+        std::cout << fechada.top().x << ", " << fechada.top().y << std::endl;;
+        fechada.pop();
+    }
+}
 
 
 int main(int argc, char *argv[]){
@@ -155,20 +229,17 @@ int main(int argc, char *argv[]){
             std::cout << "Informe o limiar T (quanto menor o limiar, maior a precisão e vice-versa): \n";
             std::cin >> T;
 
-            // 1) P é um conjunto ordenado de pontos. A e B são os pontos de partida
-            // 2) definimos o limiar T e duas pilhas vazias (Ab e Fe)
-            // 3) se P define uma curva fechada, empilhamos B em Ab e Fe e A em Ab.
-            //  se a curva for aberta colocamos A em Ab e B em Fe.
-            // 4) calculamos os parâmetros da reta que passa pelos vértices no topo de Fe
-            // e no topo de Ab
-            // 5) para todos os pontos, entre aqueles vértices obtidos em (4), calculamos
-            // suas distâncias em relação à reta obtida em (4). Selecionamos o ponto Vmax,
-            // com distância Dmax
-            // 6) se Dmax > T, empilhamos o vertice Vmax em Ab e retornamos a (4)
-            // 7) senão, removemos o vértice no topo de Ab empilhando-o em Fe
-            // 8) se a pilha Ab não estiver vaiz, retornamos a (4)
-            // 9) caso contrário, saímos. Os vértices em Fe definem a aproximação poligonal 
-            // do conjunto de pontos P.
+            std::vector<point> P;
+
+            // P.push_back(std::make_tuple(1, 4));
+            // P.push_back(std::make_tuple(4, 8));
+            
+            // std::cout << "lista de pontos P\n";
+            // for(const auto& tupla : P){
+            //     std::cout << std::get<0>(tupla) << ", " << std::get<1>(tupla) << std::endl;
+            // }
+
+
             break;
         }
         
