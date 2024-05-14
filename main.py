@@ -24,10 +24,7 @@ def localProcessing(original_image, Tm, A, Ta):
 
 
     magnitude, angle = cv.cartToPolar(sobel_x, sobel_y, angleInDegrees = True)
-
-
     minVal, maxVal, minLoc, maxLoc = cv.minMaxLoc(magnitude)
-
 
     Tm = Tm * maxVal
     img_g = np.zeros((rows, cols))
@@ -69,53 +66,51 @@ def correction(original_image, K):
 
     return img_corrected
 
-
-def distance(p1, p2, p3):
-
-    if p1[0] == p2[0] and p1[1] == p2[1]:
-        return 0
-
-    x0, y0 = p1
-    x1, y1 = p2
-    x2, y2 = p3
-
-    m = (y2 - y1) / (x2 - x1)
-
-    c = -m * x1 + y1
-    a = -m
-    b = 1
-
-    distancia = abs(a * x0 + b * y0 + c) / np.sqrt(a**2 + b**2)
-    return distancia
-    # return abs(inclinicacao * p1[0] - p1[1] + interceptacao) / m.sqrt(inclinicacao * inclinicacao + 1)
-
-
-# def calcLineParams(topFe, topAb):
-#     if(topAb[0] - topFe[0] != 0):
-#         inclinacao = (topAb[1] - topFe[1]) / (topAb[0] - topFe[0])
-#         interceptacao = topFe[1] - inclinacao * topFe[0]
-#     else:
-#         inclinacao = float('inf')
-#         interceptacao = float('inf')
+def distance(point, inclinacao, interceptacao):
+    x0, y0 = point
     
+    if np.isinf(inclinacao):
+        return abs(x0 - interceptacao)
+    
+    else:
+        distancia = abs(inclinacao * x0 - y0 + interceptacao) / np.sqrt(inclinacao**2 + 1)
+    
+    return distancia
+
+def calcLineParams(point1, point2):
+    x1, y1 = point1
+    x2, y2 = point2
+    
+    if x2 - x1 != 0:
+        inclinacao = (y2 - y1) / (x2 - x1)
+    else:
+        inclinacao = float('inf')
+    
+    interceptacao = y1 - inclinacao * x1
 
     return inclinacao, interceptacao
+
 
 def limiarize(original_image, limiar):
     sobel_x = cv.Sobel(original_image, cv.CV_64F, 1, 0)
     sobel_y = cv.Sobel(original_image, cv.CV_64F, 0, 1)
 
     magnitude, angle = cv.cartToPolar(sobel_x, sobel_y, angleInDegrees = True)
-
     minVal, maxVal, minLoc, maxLoc = cv.minMaxLoc(magnitude)
-
     ret, bin_img = cv.threshold(magnitude, limiar * maxVal, 255, cv.THRESH_BINARY)
 
-    bin_img = cv.morphologyEx(bin_img, cv.MORPH_OPEN, np.ones((3, 3), np.uint8))
+    bin_img = cv.convertScaleAbs(bin_img)
+    bin_img = cv.ximgproc.thinning(bin_img)
+
+    # bin_img = cv.morphologyEx(bin_img, cv.MORPH_OPEN, np.ones((5, 5), np.uint8))
+
+    cv.imshow("limiarizada e afinada", bin_img)
+    cv.waitKey(0)
+    cv.destroyAllWindows()
 
     return bin_img
 
-def ordenarPontos(points):
+def ordenarPontos(points):  # em teoria essa funcao deve ordenar os pontos em sentido horário
     cx, cy = points.mean(0)
     x, y = points.T
     angles = np.arctan2(x - cx, y - cy)
@@ -136,14 +131,13 @@ def ordenarPontos(points):
 # 8) se a pilha Ab não estiver vaiz, retornamos a (4)
 # 9) caso contrário, saímos. Os vértices em Fe definem a aproximação poligonal 
 #  do conjunto de pontos P.
-def regionalProcessing(points, T, closed):
-    final_img = np.ndarray((rows, cols))
+def regionalProcessing(points, T, closed): 
     aberta = []
     fechada = []
-    A = points[0]
-    B = points[-1]
+    A = points[0] # pega o primeiro da lista de pontos
+    B = points[-1] # pega o ultimo da lista de pontos
     
-    if(closed):
+    if(closed): 
         aberta.append(B)
         fechada.append(B)
         aberta.append(A)
@@ -151,42 +145,29 @@ def regionalProcessing(points, T, closed):
         aberta.append(A)
         fechada.append(B)
     
-    while(len(aberta) > 0):
-        topFe = fechada[0]
-        print("topfe = ", topFe)
-        topAb = aberta[0]
-        print("topab = ", topAb)
-        # incl, intercep = calcLineParams(topFe, topAb)
-        vmax = 0
+    while aberta:
+        inclinacao, interceptacao = calcLineParams(fechada[-1], aberta[-1])
+
+        # print("executando")
+        vmax = None
         dmax = 0.0
-        for i in points:
-            if(dmax < distance(i, topFe, topAb)):
-                vmax = i
-                dmax = distance(i, topFe, topAb)
-        
+        for point in points: # acho que isso daqui nao ta mt certo
+            if tuple(point) not in [tuple(p) for p in aberta] and tuple(point) not in [tuple(p) for p in fechada]:
+                d = distance(point,inclinacao, interceptacao)
+                if(d > dmax):
+                    # print("entrou no if")
+                    vmax = point
+                    dmax = d
+        # print("dmax = ", dmax) 
         if(dmax > T):
             aberta.append(vmax)
-            continue
         else:
-            aberta.pop()
-            fechada.append(vmax)
-    
+            fechada.append(aberta.pop())
+            # print("entrou na inserção em fechada-------------------------------------")
 
-    first_point = tuple(fechada[0])
-    while(len(fechada) > 0):
-        if(len(fechada) > 1):
-            p1 = tuple(fechada[0])
-            p2 = tuple(fechada[1])
-            print("p2 = ", fechada[1])
-        else:
-            p1 = tuple(fechada[0])
-            p2 = first_point
-        final_img = cv.line(final_img, p1, p2, (255, 255, 255), 10)
-        # print(fechada[0][0], ", ", fechada[0][1])
-        fechada.pop()
 
-    cv.imshow("Imagem contornada", final_img)
-
+    # print("lista fechada = ", fechada)
+    return fechada
     
 
 def globalProcessing():
@@ -252,7 +233,22 @@ elif(choice == 2):
     else:
         closed = False
 
-    regionalProcessing(points, T, closed)
+    aprox = regionalProcessing(points_ord, T, closed)
+    # print(aprox)
+    aprox = np.array(aprox, np.int32)
+    aprox = aprox.reshape((-1, 1, 2))
+    f_img = np.ndarray((rows, cols))
+    cv.polylines(f_img, aprox, isClosed=closed, color=(255, 255, 255), thickness=1)
+    # for i in range(len(aprox)):
+    #     pt1 = aprox[i]
+    #     pt2 = aprox[(i + 1) % len(aprox)]
+
+    #     cv.line(f_img, pt1, pt2, (255, 255, 255), 1)
+    cv.imshow("contorno", f_img)
+    cv.waitKey(0)
+    cv.destroyAllWindows()
+
+    
 
 elif(choice == 3):
     globalProcessing()
