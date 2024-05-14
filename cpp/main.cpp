@@ -10,6 +10,7 @@
 cv::Mat localProcessing(cv::Mat original_image, double Tm, double A, double Ta){
     cv::Mat sobel_x, sobel_y, direction, mag, angle;
 
+    // calculando matriz de magnitude 
     cv::Sobel(original_image, sobel_x, CV_8U, 1, 0);
     cv::Sobel(original_image, sobel_y, CV_8U, 0, 1);
 
@@ -17,6 +18,7 @@ cv::Mat localProcessing(cv::Mat original_image, double Tm, double A, double Ta){
     sobel_x.convertTo(sobel_x_float, CV_64F);
     sobel_y.convertTo(sobel_y_float, CV_64F);
 
+    // obtendo matriz de direcao
     cv::cartToPolar(sobel_x_float, sobel_y_float, mag, angle, true);   
 
     cv::Mat imagem_g(original_image.rows, original_image.cols, CV_8U);
@@ -26,10 +28,14 @@ cv::Mat localProcessing(cv::Mat original_image, double Tm, double A, double Ta){
     cv::Point posicaoMaxima;
     cv::minMaxLoc(mag, nullptr, &valorMaximo, nullptr, &posicaoMaxima);
 
-    // std::cout << "valormaximo = " << valorMaximo << std::endl;
+    std::cout << "valormaximo = " << valorMaximo << std::endl;
 
     mag.convertTo(mag_8u, CV_8U);
     angle.convertTo(angle_8u, CV_8U);
+
+    cv::imshow("sobel x", sobel_x);
+    cv::imshow("sobel y", sobel_y);
+    
 
     Tm *= valorMaximo;
 
@@ -53,7 +59,7 @@ cv::Mat localProcessing(cv::Mat original_image, double Tm, double A, double Ta){
     // cv::imshow("Imagem Original", original_image);
     // cv::imshow("Derivada em X", sobel_x);
     // cv::imshow("Derivada em Y", sobel_y);
-    // cv::imshow("Magnitude das Derivadas", mag_8u);
+    cv::imshow("Magnitude das Derivadas", mag_8u);
     // cv::imshow("Ângulo de Fase", angle);
     cv::imshow("g(x,y)", imagem_g);
     // std::cout << imagem_g << std::endl;
@@ -90,9 +96,8 @@ cv::Mat correction(cv::Mat image, int K){
 }
 
 struct point{
-    double x, y;
+    int x, y;
 };
-
 
 // funcao p calcular a distancia entre os pontos
 double distance(point p1, double inclinicacao, double interceptacao){
@@ -102,6 +107,7 @@ double distance(point p1, double inclinicacao, double interceptacao){
 
 // calcular parametros de reta
 void calcLineParams(point topFe, point topAb, double& inclinacao, double &interceptacao){
+    // y = m(inclinacao)x + b(interceptacao)
     inclinacao = (topAb.y - topFe.y) / (topAb.x - topFe.x);
     interceptacao = topFe.y - inclinacao * topFe.x;
 }
@@ -120,11 +126,13 @@ void calcLineParams(point topFe, point topAb, double& inclinacao, double &interc
 // 8) se a pilha Ab não estiver vaiz, retornamos a (4)
 // 9) caso contrário, saímos. Os vértices em Fe definem a aproximação poligonal 
 // do conjunto de pontos P.
-void regionalProcessing(std::vector<point> points, double T, bool closed){
+void regionalProcessing(cv::Mat original_image, std::vector<point> points, double T, bool closed){
     std::stack<point> aberta, fechada;
     point A, B;
 
     // escolher onde empilhar A e B, de acordo com o tipo de curva (como saber?)
+    // usa um limiar, se os dois pontos mais distantes estiverem acima do limiar, a curva é aberta
+    // caso contrário, a curva é fechada
     if(closed){ // p curva fechada
         aberta.push(B);
         fechada.push(B);
