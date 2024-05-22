@@ -2,7 +2,7 @@ import cv2 as cv
 import numpy as np
 import math as m
 from scipy import spatial
-
+import matplotlib.pyplot as plt
 
 img_path = input("Informe o nome do arquivo a ser utilizado: ")
 path = "./imagens/" + img_path
@@ -18,7 +18,7 @@ else:
 dimensions = img.shape
 rows, cols = dimensions
 
-def localProcessing(original_image, Tm, A, Ta):
+def localProcessing(original_image, Tm, A, Ta, K, rows, cols):
     sobel_x = cv.Sobel(original_image, cv.CV_64F, 1, 0)
     sobel_y = cv.Sobel(original_image, cv.CV_64F, 0, 1)
 
@@ -40,8 +40,8 @@ def localProcessing(original_image, Tm, A, Ta):
             else:
                 img_g[i][j] = 0
 
-    cv.imshow("Imagem resultante", img_g)
-    cv.waitKey(0)
+
+    img_g = correction(img_g, K)
 
     return img_g
 
@@ -66,17 +66,6 @@ def correction(original_image, K):
 
     return img_corrected
 
-def distance(point, inclinacao, interceptacao):
-    x0, y0 = point
-    
-    if np.isinf(inclinacao):
-        return abs(x0 - interceptacao)
-    
-    else:
-        distancia = abs(inclinacao * x0 - y0 + interceptacao) / np.sqrt(inclinacao**2 + 1)
-    
-    return distancia
-
 def calcLineParams(point1, point2):
     x1, y1 = point1
     x2, y2 = point2
@@ -84,12 +73,67 @@ def calcLineParams(point1, point2):
     if x2 - x1 != 0:
         inclinacao = (y2 - y1) / (x2 - x1)
     else:
-        inclinacao = float('inf')
+        inclinacao = np.inf
     
     interceptacao = y1 - inclinacao * x1
-
     return inclinacao, interceptacao
 
+def distance(point, inclinacao, interceptacao):
+    x0, y0 = point
+    
+    if np.isinf(inclinacao):
+        return abs(x0 - interceptacao)
+    
+    try:
+        distancia = abs(inclinacao * x0 - y0 + interceptacao) / np.sqrt(inclinacao**2 + 1)
+    except ZeroDivisionError:
+        distancia = abs(y0 - interceptacao)
+    
+    return distancia
+
+def is_between(point, A, B):
+    # Verifica se o ponto está entre os vértices A e B no sentido horário
+    # Calcula os vetores AB e AP
+    vector_AB = [B[0] - A[0], B[1] - A[1]]
+    vector_AP = [point[0] - A[0], point[1] - A[1]]
+
+    # Calcula o produto vetorial entre AB e AP
+    cross_product = vector_AB[0] * vector_AP[1] - vector_AB[1] * vector_AP[0]
+
+    # Se o produto vetorial for positivo, o ponto está no sentido horário
+    return cross_product > 0
+
+def regionalProcessing(points, A, B, closed): 
+    ABERTA = []
+    FECHADA = []
+
+    if(closed):
+        ABERTA.insert(0, tuple(B))
+        FECHADA.insert(0, tuple(B))
+        ABERTA.insert(0, tuple(A))
+    else:
+        ABERTA.insert(0, tuple(A))
+        FECHADA.insert(0, tuple(B))
+
+    while(True):
+        inclinacao, interceptacao = calcLineParams(FECHADA[0], ABERTA[0])
+        dmax = 0.0
+        vmax = None
+        for point in points:
+            if is_between(point, FECHADA[0], ABERTA[0]):
+                # print("point = ", point)
+                d = distance(point, inclinacao, interceptacao)
+                if d > dmax:
+                    dmax = d
+                    vmax = point
+        print("dmax = ", dmax)
+        if(dmax > T):
+            ABERTA.insert(0, tuple(vmax))
+        else:
+            FECHADA.insert(0, ABERTA.pop(0))
+            if not ABERTA:
+                return FECHADA
+    
 
 def limiarize(original_image, limiar):
     sobel_x = cv.Sobel(original_image, cv.CV_64F, 1, 0)
@@ -102,20 +146,26 @@ def limiarize(original_image, limiar):
     bin_img = cv.convertScaleAbs(bin_img)
     bin_img = cv.ximgproc.thinning(bin_img)
 
-    # bin_img = cv.morphologyEx(bin_img, cv.MORPH_OPEN, np.ones((5, 5), np.uint8))
-
     cv.imshow("limiarizada e afinada", bin_img)
     cv.waitKey(0)
     cv.destroyAllWindows()
 
     return bin_img
 
-def ordenarPontos(points):  # em teoria essa funcao deve ordenar os pontos em sentido horário
-    cx, cy = points.mean(0)
-    x, y = points.T
-    angles = np.arctan2(x - cx, y - cy)
-    indices = np.argsort(-angles)
-    return points[indices]
+def get_angle(point, lowest_point):
+    return m.atan2(point[1] - lowest_point[1], point[0] - lowest_point[0])
+
+def get_distance(point1, point2):
+    return m.sqrt((point1[0] - point2[0])**2 + (point1[1] - point2[1])**2)
+
+def ordenarPontos(points):
+    # Encontre o ponto mais baixo
+    lowest_point = min(points, key=lambda point: (point[1], point[0]))
+    
+    # Ordene os pontos com base em seus ângulos em relação ao ponto mais baixo
+    sorted_points = sorted(points, key=lambda point: (get_angle(point, lowest_point), -get_distance(point, lowest_point)))
+    
+    return sorted_points
 
 # 1) P é um conjunto ordenado de pontos. A e B são os pontos de partida
 # 2) definimos o limiar T e duas pilhas vazias (Ab e Fe)
@@ -131,51 +181,86 @@ def ordenarPontos(points):  # em teoria essa funcao deve ordenar os pontos em se
 # 8) se a pilha Ab não estiver vaiz, retornamos a (4)
 # 9) caso contrário, saímos. Os vértices em Fe definem a aproximação poligonal 
 #  do conjunto de pontos P.
-def regionalProcessing(points, T, closed): 
-    aberta = []
-    fechada = []
-    A = points[0] # pega o primeiro da lista de pontos
-    B = points[-1] # pega o ultimo da lista de pontos
-    
-    if(closed): 
-        aberta.append(B)
-        fechada.append(B)
-        aberta.append(A)
-    else:
-        aberta.append(A)
-        fechada.append(B)
-    
-    while aberta:
-        inclinacao, interceptacao = calcLineParams(fechada[-1], aberta[-1])
 
-        # print("executando")
-        vmax = None
-        dmax = 0.0
-        for point in points: # acho que isso daqui nao ta mt certo
-            if tuple(point) not in [tuple(p) for p in aberta] and tuple(point) not in [tuple(p) for p in fechada]:
-                d = distance(point,inclinacao, interceptacao)
-                if(d > dmax):
-                    # print("entrou no if")
-                    vmax = point
-                    dmax = d
-        # print("dmax = ", dmax) 
-        if(dmax > T):
-            aberta.append(vmax)
-        else:
-            fechada.append(aberta.pop())
-            # print("entrou na inserção em fechada-------------------------------------")
-
-
-    # print("lista fechada = ", fechada)
-    return fechada
-    
-
-def globalProcessing():
+def polarCoord(radius, angle ):
     pass
 
+def globalProcessing(img):
+    height, width = img.shape
+    max_dist = int(np.sqrt(height**2 + width**2))
+    rhos = np.linspace(-max_dist, max_dist, 2 * max_dist)
+    thetas = np.deg2rad(np.arange(-90, 90))
 
-# cv.imshow("Imagem escolhida (tons de cinza)", img)
-# cv.waitKey(0)
+    accumulator = np.zeros((2 * max_dist, len(thetas)))
+
+    y_ind, x_ind = np.nonzero(img) # pegando pixels de borda
+    for i in range(len(x_ind)):
+        print("gerando matriz acumuladora")
+        x = x_ind[i]
+        y = y_ind[i]
+        for theta_ind in range(len(thetas)):
+            theta = thetas[theta_ind]
+            rho = int(x * np.cos(theta) + y * np.sin(theta))
+            accumulator[rho + max_dist, theta_ind] += 1
+
+    return accumulator, rhos, thetas
+
+def plot_hough_accumulator(accumulator, thetas, rhos):
+    plt.imshow(accumulator, aspect='auto', cmap='hot', extent=[np.rad2deg(thetas[0]), np.rad2deg(thetas[-1]), rhos[0], rhos[-1]])
+    plt.title('Hough Transform Accumulator')
+    plt.xlabel('Theta (degrees)')
+    plt.ylabel('Rho (pixels)')
+    plt.colorbar()
+    plt.show()
+
+def draw_hough_lines(image, accumulator, rhos, thetas, qtd_lines):
+    cos_t = np.cos(thetas)
+    sin_t = np.sin(thetas)
+
+    # threshold = np.max(accumulator) - qtd_lines
+    acc_copy = accumulator.copy()
+    
+    vet_x = []
+    vet_y = []
+
+    while qtd_lines > 0:
+        # Encontrar picos na acumuladora
+        index_linear = np.argmax(acc_copy)
+        y_idxs, x_idxs = np.unravel_index(index_linear, acc_copy.shape)
+        print("shape do x_idxs = ", x_idxs)
+        print("shape do y_idxs = ", y_idxs)
+
+        vet_x.append(x_idxs)
+        vet_y.append(y_idxs)
+
+        acc_copy[y_idxs, x_idxs] = -1
+
+        qtd_lines -= 1
+    
+# Encontrar picos na acumuladora
+    # y_idxs, x_idxs = np.where(accumulator > threshold)
+    y_idxs, x_idxs = vet_y, vet_x
+    
+    for i in range(len(x_idxs)):
+        rho = rhos[y_idxs[i]]
+        theta = thetas[x_idxs[i]]
+        
+        a = cos_t[x_idxs[i]]
+        b = sin_t[x_idxs[i]]
+        
+        x0 = a * rho
+        y0 = b * rho
+        
+        x1 = int(x0 + 1000 * (-b))
+        y1 = int(y0 + 1000 * (a))
+        x2 = int(x0 - 1000 * (-b))
+        y2 = int(y0 - 1000 * (a))
+        
+        cv.line(image, (x1, y1), (x2, y2), (255, 255, 255), 2)
+    
+
+    return image
+
 
 print("Qual processamento você quer realizar? \n 1 - Processamento Local \n 2 - Processamento Regional \n 3 - Processamento Global")
 choice = int(input())
@@ -186,27 +271,20 @@ if(choice == 1):
     Ta = float(input("Informe a faixa de direções aceitáveis (Ta): "))
     K = int(input("Informe o limiar (K) para correção de falhas: "))
 
-    img_h = localProcessing(img, Tm, A, Ta)
+    dimensions = img.shape
+    rows1, cols1 = dimensions
+
+    img_h = localProcessing(img, Tm, A, Ta, K, rows1, cols1)
     img_r = cv.rotate(img, cv.ROTATE_90_CLOCKWISE)
-    img_v = localProcessing(img_r, Tm, A, Ta)
+    dimensions = img_r.shape
+    rows2, cols2 = dimensions
+    img_v = localProcessing(img_r, Tm, A, Ta, K, rows2, cols2)
     img_v = cv.rotate(img_v, cv.ROTATE_90_COUNTERCLOCKWISE)
     cv.imshow("img_v rotacionada", img_v)
     cv.waitKey(0)
 
     img_or = cv.bitwise_or(img_h, img_v)
     cv.imshow("imagem depois do OR", img_or)
-    cv.waitKey(0)
-
-    corrected = correction(img_or, K)
-    cv.imshow("correcao", corrected)
-    cv.waitKey(0)
-
-    img_vert = cv.rotate(img_or, cv.ROTATE_90_CLOCKWISE)
-    corrected2 = correction(img_vert, K)
-    corrected2 = cv.rotate(corrected2, cv.ROTATE_90_COUNTERCLOCKWISE)
-
-    result = cv.bitwise_or(corrected, corrected2)
-    cv.imshow("correcao", result)
     cv.waitKey(0)
 
 
@@ -216,6 +294,7 @@ elif(choice == 2):
     limit = float(input("Informe o limite de distancia para curvas fechadas: "))
     points = []
     bin_img = limiarize(img, binary)
+    cv.imshow("imagem limiarizada", bin_img)
 
     for i in range(0, rows):
         for j in range(0, cols):
@@ -233,24 +312,39 @@ elif(choice == 2):
     else:
         closed = False
 
-    aprox = regionalProcessing(points_ord, T, closed)
-    # print(aprox)
-    aprox = np.array(aprox, np.int32)
+    aprox = regionalProcessing(points_ord, points_ord[0], points_ord[-1], closed)
+    print(aprox)
+    aprox = np.array(aprox)
     aprox = aprox.reshape((-1, 1, 2))
-    f_img = np.ndarray((rows, cols))
-    cv.polylines(f_img, aprox, isClosed=closed, color=(255, 255, 255), thickness=1)
-    # for i in range(len(aprox)):
-    #     pt1 = aprox[i]
-    #     pt2 = aprox[(i + 1) % len(aprox)]
+    f_img = np.zeros((rows, cols))
+    cv.polylines(f_img, [aprox], closed, (255, 255, 255), 1)
 
-    #     cv.line(f_img, pt1, pt2, (255, 255, 255), 1)
     cv.imshow("contorno", f_img)
     cv.waitKey(0)
     cv.destroyAllWindows()
 
-    
 
 elif(choice == 3):
-    globalProcessing()
+    lower = float(input("Limite inferior para o Canny: "))
+    upper = float(input("Limite superior para o Canny: "))
+    qtd_lines = float(input("Informe a qtd de linhas para desenhar: "))
+    opc = int(input("Suavizar imagem? \n0 - Sim \n1 - Não\n"))
+    if(not opc):
+        img = cv.GaussianBlur(img, (5, 5), cv.BORDER_DEFAULT)
+
+    img_b = cv.Canny(img, 20, 100)
+    cv.imshow("contorno", img_b)
+    cv.waitKey(0)
+    cv.destroyAllWindows()
+
+    accumulator, rhos, thetas = globalProcessing(img)
+    plot_hough_accumulator(accumulator, rhos, thetas)
+
+    img_c_linhas = draw_hough_lines(img, accumulator, rhos, thetas, qtd_lines)
+
+    cv.imshow("imagem com linhas geradas", img_c_linhas)
+    cv.waitKey(0)
+    cv.destroyAllWindows(0)
+
 else:
     print("Operação inválida.")
