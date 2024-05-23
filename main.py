@@ -3,6 +3,7 @@ import numpy as np
 import math as m
 from scipy import spatial
 import matplotlib.pyplot as plt
+from functools import cmp_to_key
 
 img_path = input("Informe o nome do arquivo a ser utilizado: ")
 path = "./imagens/" + img_path
@@ -103,6 +104,21 @@ def is_between(point, A, B):
     # Se o produto vetorial for positivo, o ponto está no sentido horário
     return cross_product > 0
 
+# 1) P é um conjunto ordenado de pontos. A e B são os pontos de partida
+# 2) definimos o limiar T e duas pilhas vazias (Ab e Fe)
+# 3) se P define uma curva fechada, empilhamos B em Ab e Fe e A em Ab.
+#  se a curva for aberta colocamos A em Ab e B em Fe.
+# 4) calculamos os parâmetros da reta que passa pelos vértices no topo de Fe
+# e no topo de Ab
+# 5) para todos os pontos, entre aqueles vértices obtidos em (4), calculamos
+# suas distâncias em relação à reta obtida em (4). Selecionamos o ponto Vmax,
+# com distância Dmax
+# 6) se Dmax > T, empilhamos o vertice Vmax em Ab e retornamos a (4)
+# 7) senão, removemos o vértice no topo de Ab empilhando-o em Fe
+# 8) se a pilha Ab não estiver vazia, retornamos a (4)
+# 9) caso contrário, saímos. Os vértices em Fe definem a aproximação poligonal 
+#  do conjunto de pontos P.
+
 def regionalProcessing(points, A, B, closed): 
     ABERTA = []
     FECHADA = []
@@ -126,7 +142,7 @@ def regionalProcessing(points, A, B, closed):
                 if d > dmax:
                     dmax = d
                     vmax = point
-        print("dmax = ", dmax)
+        # print("dmax = ", dmax)
         if(dmax > T):
             ABERTA.insert(0, tuple(vmax))
         else:
@@ -134,7 +150,6 @@ def regionalProcessing(points, A, B, closed):
             if not ABERTA:
                 return FECHADA
     
-
 def limiarize(original_image, limiar):
     sobel_x = cv.Sobel(original_image, cv.CV_64F, 1, 0)
     sobel_y = cv.Sobel(original_image, cv.CV_64F, 0, 1)
@@ -159,95 +174,114 @@ def get_distance(point1, point2):
     return m.sqrt((point1[0] - point2[0])**2 + (point1[1] - point2[1])**2)
 
 def ordenarPontos(points):
-    # Encontre o ponto mais baixo
-    lowest_point = min(points, key=lambda point: (point[1], point[0]))
+    centro = [0,0]
+    for point in points:
+        centro[0] += point[0]
+        centro[1] += point[1]
+
+    n = len(points)
+
+    centro[0] /= n
+    centro[1] /= n
+
+    for point in points:
+        point[0] -= centro[0]
+        point[1] -= centro[1]
+
+    # sort com funcao customizada
+    sorted(points, key=cmp_to_key(comparePoints))
+
+    for point in points:
+        point[0] += centro[0]
+        point[1] += centro[1]
+
+    return points
+
+def comparePoints(pt1, pt2):
+    angle1 = getAngle((0, 0), pt1)
+    angle2 = getAngle((0, 0), pt2)
+
+    if(angle1 < angle2):
+        return True
     
-    # Ordene os pontos com base em seus ângulos em relação ao ponto mais baixo
-    sorted_points = sorted(points, key=lambda point: (get_angle(point, lowest_point), -get_distance(point, lowest_point)))
+    d1 = getDistance((0, 0), pt1)
+    d2 = getDistance((0, 0), pt2)
+
+    if(angle1 == angle2) and (d1 < d2):
+        return True
     
-    return sorted_points
+    return False
 
-# 1) P é um conjunto ordenado de pontos. A e B são os pontos de partida
-# 2) definimos o limiar T e duas pilhas vazias (Ab e Fe)
-# 3) se P define uma curva fechada, empilhamos B em Ab e Fe e A em Ab.
-#  se a curva for aberta colocamos A em Ab e B em Fe.
-# 4) calculamos os parâmetros da reta que passa pelos vértices no topo de Fe
-# e no topo de Ab
-# 5) para todos os pontos, entre aqueles vértices obtidos em (4), calculamos
-# suas distâncias em relação à reta obtida em (4). Selecionamos o ponto Vmax,
-# com distância Dmax
-# 6) se Dmax > T, empilhamos o vertice Vmax em Ab e retornamos a (4)
-# 7) senão, removemos o vértice no topo de Ab empilhando-o em Fe
-# 8) se a pilha Ab não estiver vaiz, retornamos a (4)
-# 9) caso contrário, saímos. Os vértices em Fe definem a aproximação poligonal 
-#  do conjunto de pontos P.
+def getAngle(centro, pt):
+    x = pt[0] - centro[0]
+    y = pt[1] - centro[1]
 
-def polarCoord(radius, angle ):
-    pass
+    angle = m.atan2(x, y)
 
-def globalProcessing(img):
-    height, width = img.shape
-    max_dist = int(np.sqrt(height**2 + width**2))
+    if(angle <= 0):
+        angle = 2 * m.pi + angle
+
+    return angle
+
+def getDistance(pt1, pt2):
+    x = pt1[0] - pt2[0]
+    y = pt1[1] - pt2[1]
+
+    return m.sqrt(x**2 + y**2)
+
+def globalProcessing(edge_image):
+    # Definindo os parâmetros de Hough
+    height, width = edge_image.shape
+    max_dist = int(np.ceil(np.sqrt(height**2 + width**2)))
     rhos = np.linspace(-max_dist, max_dist, 2 * max_dist)
     thetas = np.deg2rad(np.arange(-90, 90))
 
-    accumulator = np.zeros((2 * max_dist, len(thetas)))
+    # Inicializando a acumuladora
+    accumulator = np.zeros((2 * max_dist, len(thetas)), dtype=np.int32)
 
-    y_ind, x_ind = np.nonzero(img) # pegando pixels de borda
-    for i in range(len(x_ind)):
-        print("gerando matriz acumuladora")
-        x = x_ind[i]
-        y = y_ind[i]
-        for theta_ind in range(len(thetas)):
-            theta = thetas[theta_ind]
-            rho = int(x * np.cos(theta) + y * np.sin(theta))
-            accumulator[rho + max_dist, theta_ind] += 1
+    # Povoando a matriz acumuladora
+    y_indices, x_indices = np.nonzero(edge_image)  # Índices dos pixels de borda
+
+    for i in range(len(x_indices)):
+        x = x_indices[i]
+        y = y_indices[i]
+        for theta_index in range(len(thetas)):
+            theta = thetas[theta_index]
+            rho = int(round(x * np.cos(theta) + y * np.sin(theta))) + max_dist
+            accumulator[rho, theta_index] += 1
+            # print("theta index = ", theta_index)
+
+    print("matriz acc = ", accumulator)
 
     return accumulator, rhos, thetas
 
 def plot_hough_accumulator(accumulator, thetas, rhos):
-    plt.imshow(accumulator, aspect='auto', cmap='hot', extent=[np.rad2deg(thetas[0]), np.rad2deg(thetas[-1]), rhos[0], rhos[-1]])
+    plt.imshow(accumulator, aspect='auto', cmap='binary', extent=[np.rad2deg(thetas[0]), np.rad2deg(thetas[-1]), rhos[0], rhos[-1]])
     plt.title('Hough Transform Accumulator')
     plt.xlabel('Theta (degrees)')
     plt.ylabel('Rho (pixels)')
     plt.colorbar()
     plt.show()
 
-def draw_hough_lines(image, accumulator, rhos, thetas, qtd_lines):
-    cos_t = np.cos(thetas)
-    sin_t = np.sin(thetas)
+def drawHoughLines(image, accumulator, rhos, thetas, threshold, color):
+    # Copiar a imagem original para não modificar a original
+    output_image = image.copy()
 
-    # threshold = np.max(accumulator) - qtd_lines
-    acc_copy = accumulator.copy()
+    # Encontrar picos na acumuladora
+    peak_indices = np.argwhere(accumulator > threshold)
     
-    vet_x = []
-    vet_y = []
-
-    while qtd_lines > 0:
-        # Encontrar picos na acumuladora
-        index_linear = np.argmax(acc_copy)
-        y_idxs, x_idxs = np.unravel_index(index_linear, acc_copy.shape)
-        print("shape do x_idxs = ", x_idxs)
-        print("shape do y_idxs = ", y_idxs)
-
-        vet_x.append(x_idxs)
-        vet_y.append(y_idxs)
-
-        acc_copy[y_idxs, x_idxs] = -1
-
-        qtd_lines -= 1
+    print("y ind = ", peak_indices[:, 0])
+    print("x ind = ", peak_indices[:, 1])
     
-# Encontrar picos na acumuladora
-    # y_idxs, x_idxs = np.where(accumulator > threshold)
-    y_idxs, x_idxs = vet_y, vet_x
-    
-    for i in range(len(x_idxs)):
-        rho = rhos[y_idxs[i]]
-        theta = thetas[x_idxs[i]]
+    for peak in peak_indices:
+        rho_index = peak[0]
+        theta_index = peak[1]
         
-        a = cos_t[x_idxs[i]]
-        b = sin_t[x_idxs[i]]
+        rho = rhos[rho_index]
+        theta = thetas[theta_index]
         
+        a = np.cos(theta)
+        b = np.sin(theta)
         x0 = a * rho
         y0 = b * rho
         
@@ -256,15 +290,16 @@ def draw_hough_lines(image, accumulator, rhos, thetas, qtd_lines):
         x2 = int(x0 - 1000 * (-b))
         y2 = int(y0 - 1000 * (a))
         
-        cv.line(image, (x1, y1), (x2, y2), (255, 255, 255), 2)
+        cv.line(output_image, (x1, y1), (x2, y2), color, 2)
     
-
-    return image
+    return output_image
 
 
 print("Qual processamento você quer realizar? \n 1 - Processamento Local \n 2 - Processamento Regional \n 3 - Processamento Global")
 choice = int(input())
 
+
+# ------------------- PROCESSAMENTO LOCAL - BASEADO EM GRADIENTE ---------------------
 if(choice == 1):
     Tm = float(input("Informe o limiar Tm: "))
     A = float(input("Informe a direção angular (A): "))
@@ -280,14 +315,16 @@ if(choice == 1):
     rows2, cols2 = dimensions
     img_v = localProcessing(img_r, Tm, A, Ta, K, rows2, cols2)
     img_v = cv.rotate(img_v, cv.ROTATE_90_COUNTERCLOCKWISE)
-    cv.imshow("img_v rotacionada", img_v)
-    cv.waitKey(0)
+    # cv.imshow("img_v rotacionada", img_v)
+    # cv.waitKey(0)
 
     img_or = cv.bitwise_or(img_h, img_v)
-    cv.imshow("imagem depois do OR", img_or)
+    cv.imshow("imagem final", img_or)
     cv.waitKey(0)
 
 
+
+# ------------------- PROCESSAMENTO REGIONAL - APROXIMAÇÃO POLIGONAL ---------------------
 elif(choice == 2):
     binary = float(input("Digite a % a ser limiarizada da magnitude da imagem: "))
     T = float(input("Informe o limiar T: "))
@@ -299,7 +336,7 @@ elif(choice == 2):
     for i in range(0, rows):
         for j in range(0, cols):
             if(bin_img[i][j] == 255):
-                points.append((i, j))
+                points.append((j, rows - i))
             
     points = np.array(points)
 
@@ -312,39 +349,56 @@ elif(choice == 2):
     else:
         closed = False
 
+    # print("curva fechada? ", closed)
+
     aprox = regionalProcessing(points_ord, points_ord[0], points_ord[-1], closed)
     print(aprox)
     aprox = np.array(aprox)
-    aprox = aprox.reshape((-1, 1, 2))
+    # aprox = aprox.reshape((-1, 1, 2))
     f_img = np.zeros((rows, cols))
-    cv.polylines(f_img, [aprox], closed, (255, 255, 255), 1)
+
+    # if(closed):
+    #     print("curva fechada")
+    #     cv.line(f_img, aprox[0], aprox[-1], (255, 255, 255), 2)
+    for i in range(len(aprox) - 1):
+        cv.line(f_img, aprox[i], aprox[i + 1], (255, 255, 255), 2)
+    # cv.polylines(f_img, [aprox], closed, (255, 255, 255), 1)
 
     cv.imshow("contorno", f_img)
     cv.waitKey(0)
     cv.destroyAllWindows()
 
 
+
+# ------------------- PROCESSAMENTO GLOBAL - TRANSFORMADA DE HOUGH ---------------------
 elif(choice == 3):
     lower = float(input("Limite inferior para o Canny: "))
     upper = float(input("Limite superior para o Canny: "))
-    qtd_lines = float(input("Informe a qtd de linhas para desenhar: "))
     opc = int(input("Suavizar imagem? \n0 - Sim \n1 - Não\n"))
+    color_opc = int(input("Desenhar linhas: \n0 - Pretas \n1 - Brancas\n"))
+    if(not color_opc):
+        color = (0, 0, 0)
+    else:
+        color = (255, 255, 255)
+
     if(not opc):
         img = cv.GaussianBlur(img, (5, 5), cv.BORDER_DEFAULT)
 
-    img_b = cv.Canny(img, 20, 100)
+    img_b = cv.Canny(img, lower, upper)
     cv.imshow("contorno", img_b)
     cv.waitKey(0)
     cv.destroyAllWindows()
 
-    accumulator, rhos, thetas = globalProcessing(img)
+    accumulator, rhos, thetas = globalProcessing(img_b)
     plot_hough_accumulator(accumulator, rhos, thetas)
 
-    img_c_linhas = draw_hough_lines(img, accumulator, rhos, thetas, qtd_lines)
+    qtd_lines = float(input("Informe o limiar de linhas: "))
+
+    img_c_linhas = drawHoughLines(img, accumulator, rhos, thetas, qtd_lines, color)
 
     cv.imshow("imagem com linhas geradas", img_c_linhas)
     cv.waitKey(0)
-    cv.destroyAllWindows(0)
+    # cv.destroyAllWindows(0)
 
 else:
     print("Operação inválida.")
